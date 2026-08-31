@@ -240,7 +240,8 @@
                 <th>Шаг</th>
                 <th>День</th>
                 <th>Квест</th>
-                <th>Прошли</th>
+                <th>Игроков</th>
+                <th>Прохождений</th>
                 <th>Остановились</th>
                 <th>Ср. время</th>
               </tr>
@@ -607,11 +608,15 @@
       var barValue = document.createElement('span');
       barValue.className = 'bar-value';
       barValue.textContent = formatExact(completed);
-      barValue.title = formatExact(row.completions) + ' прохождений всего';
 
       barCell.appendChild(bar);
       barCell.appendChild(barValue);
       tr.appendChild(barCell);
+
+      // Прохождения отдельной колонкой, а не тултипом: на одной машине (редактор,
+      // тестовый прогон) «Игроков» всегда 1, и без этого числа кажется, что события
+      // не пишутся, хотя пишутся.
+      tr.appendChild(cell(formatExact(row.completions)));
 
       var stopped = toNumber(row.installs_stopped_here);
       var stoppedCell = cell(stopped > 0 ? formatExact(stopped) : '—');
