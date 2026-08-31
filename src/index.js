@@ -201,6 +201,104 @@ app.get('/v1/stats/overview', {
     return rows[0];
 });
 
+// Прогресс по сюжету. Ключ шага — queue_index, сквозной индекс квеста в очереди:
+// один и тот же ассет квеста стоит в очереди по нескольку раз, поэтому quest_id
+// на вопрос «докуда дошёл игрок» не отвечает, а индекс отвечает.
+app.get('/v1/stats/quests', {
+    onRequest: requireKey(process.env.ADMIN_KEY)
+}, async (request) => {
+    const days = Math.min(Math.max(Number(request.query.days ?? 30) || 30, 1), 365);
+
+    const { rows } = await pool.query(
+        `with completed as (select install_id,
+                                   (props ->> 'queue_index')::int as queue_index,
+                                   props ->> 'quest_name'         as quest_name,
+                                   props ->> 'quest_day'          as quest_day,
+                                   props ->> 'quest_id'           as quest_id,
+                                   case
+                                       when jsonb_typeof(props -> 'queue_length') = 'number'
+                                           then (props ->> 'queue_length')::int
+                                       end                        as queue_length,
+                                   -- Прогоны, поднятые из сейва посреди квеста, в среднее время
+                                   -- не идут: отсчёт у них начался заново и занижает длительность.
+                                   case
+                                       when jsonb_typeof(props -> 'duration_seconds') = 'number'
+                                           and props ->> 'resumed_from_save' = 'false'
+                                           then (props ->> 'duration_seconds')::numeric
+                                       end                        as duration_seconds
+                            from events
+                            where name = 'quest_complete'
+                              and received_at >= now() - make_interval(days => $1::int)
+                              -- Ключ приёма событий лежит в билде открытым, прислать сюда можно
+                              -- что угодно: без проверки типа мусорный queue_index уронил бы каст.
+                              and jsonb_typeof(props -> 'queue_index') = 'number'),
+              furthest as (select install_id, max(queue_index) as queue_index
+                           from completed
+                           group by install_id),
+              stopped as (select queue_index, count(*) as installs
+                          from furthest
+                          group by queue_index)
+         select c.queue_index,
+                -- Один индекс — один квест, но между версиями игры очередь сдвигается,
+                -- поэтому берём самое частое имя, а не первое попавшееся.
+                mode() within group (order by c.quest_day)  as quest_day,
+                mode() within group (order by c.quest_name) as quest_name,
+                mode() within group (order by c.quest_id)   as quest_id,
+                count(*)                                    as completions,
+                count(distinct c.install_id)                as installs_completed,
+                -- Сколько всего шагов в очереди на момент прохождения: нужно, чтобы
+                -- сказать «дошёл до 42 из 300», а не просто «до 42».
+                max(c.queue_length)                         as queue_length,
+                round(avg(c.duration_seconds))::int         as avg_seconds,
+                -- Для скольких установок этот шаг стал последним пройденным — то есть
+                -- сколько игроков дальше не ушло.
+                coalesce(max(s.installs), 0)                as installs_stopped_here
+         from completed c
+                  left join stopped s on s.queue_index = c.queue_index
+         group by c.queue_index
+         order by c.queue_index`,
+        [days]
+    );
+
+    return { days, summary: summariseProgress(rows), rows };
+});
+
+/**
+ * Сводка «докуда доходят игроки» по распределению последних пройденных шагов.
+ * Считается здесь, а не в SQL: installs_stopped_here — это уже готовое
+ * распределение, второй запрос в базу за тем же самым не нужен.
+ */
+function summariseProgress(rows) {
+    const installs = rows.reduce((total, row) => total + Number(row.installs_stopped_here), 0);
+
+    const queueLength = rows.reduce((max, row) => Math.max(max, Number(row.queue_length) || 0), 0);
+
+    if (installs === 0) {
+        return { installs: 0, median_last_index: null, max_last_index: null, queue_length: queueLength || null };
+    }
+
+    const middle = installs / 2;
+    let seen = 0;
+    let median = null;
+
+    for (const row of rows) {
+        seen += Number(row.installs_stopped_here);
+
+        if (median === null && seen >= middle) {
+            median = row.queue_index;
+        }
+    }
+
+    const reached = rows.filter((row) => Number(row.installs_stopped_here) > 0);
+
+    return {
+        installs,
+        median_last_index: median,
+        max_last_index: reached.length > 0 ? reached[reached.length - 1].queue_index : null,
+        queue_length: queueLength || null
+    };
+}
+
 // --- Дашборд --------------------------------------------------------------
 
 // Страница сама по себе не отдаёт данных — это статический HTML+JS, ключ

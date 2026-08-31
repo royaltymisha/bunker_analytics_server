@@ -27,6 +27,7 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 | POST | `/v1/events` | `X-Api-Key: $INGEST_KEY` | приём пачки событий, до 100 за раз |
 | GET | `/v1/stats/launches?days=14` | `X-Api-Key: $ADMIN_KEY` | запуски по дням: всего, уникальных, новых установок |
 | GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий |
+| GET | `/v1/stats/quests?days=30` | `X-Api-Key: $ADMIN_KEY` | прохождение сюжета: сколько игроков дошло до каждого шага и где остановилось |
 | GET | `/dashboard` | — (ключ вводится в браузере) | визуальный дашборд статистики |
 | GET | `/health` | — | healthcheck |
 
@@ -52,6 +53,24 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 ```
 
 Ответ: `202 {"accepted": 1, "duplicates": 0, "steam_verified": true}`.
+
+## События
+
+| Имя | Когда | Ключевые поля |
+|---|---|---|
+| `game_launch` | запуск игры, до первой сцены | `first_launch`, `launch_count`, железо, разрешение, язык |
+| `game_quit` | выход из игры | `session_seconds` |
+| `quest_complete` | пройден шаг очереди квестов | `queue_index`, `quest_name`, `quest_day`, `duration_seconds` |
+
+`quest_complete` шлётся клиентом из `QuestsManager.QuestQueueRunner` в момент, когда квест переходит
+в `Complete`. Прогресс считается по **`queue_index`** — сквозному индексу шага в очереди, а не по
+`quest_id`: один и тот же ассет квеста стоит в очереди по нескольку раз, и по его Id нельзя сказать,
+докуда игрок дошёл. Максимум `queue_index` на установку и есть ответ на вопрос «до какого квеста
+доходят игроки»; ровно это считает `/v1/stats/quests`.
+
+Квесты, поднятые из сейва уже пройденными, события не шлют — иначе одно прохождение считалось бы
+дважды. А вот новый заход в игру с начала пришлёт их снова: это осознанно, `installs_completed`
+считает уникальные установки, а не события.
 
 ## Дашборд
 

@@ -139,6 +139,18 @@
   th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
   th { color: var(--text-secondary); font-weight: 500; }
 
+  /* Воронка прохождения рисуется полосой прямо в ячейке: шагов в очереди сотни,
+     отдельный график из них читался бы хуже таблицы, а сравнить соседние строки
+     глазом полоса помогает. */
+  .bar-cell { position: relative; }
+  .bar-cell .bar {
+    position: absolute; left: 4px; top: 4px; bottom: 4px;
+    background: var(--series-1); opacity: .16; border-radius: 3px;
+  }
+  .bar-cell .bar-value { position: relative; }
+  .quest-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.dropoff-high { color: var(--critical); font-weight: 600; }
+
   .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0; }
   .sr-only {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
@@ -207,6 +219,38 @@
 
         <p class="empty" id="emptyState" hidden>Нет данных за этот период.</p>
       </section>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h2>Прогресс по квестам</h2>
+          <div class="range-group" id="questRangeGroup" role="group" aria-label="Период">
+            <button type="button" class="chip" data-days="7">7 дней</button>
+            <button type="button" class="chip" data-days="30">30 дней</button>
+            <button type="button" class="chip" data-days="90">90 дней</button>
+            <button type="button" class="chip" data-days="365">Год</button>
+          </div>
+        </div>
+
+        <p class="footnote" id="questSummary"></p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Шаг</th>
+                <th>День</th>
+                <th>Квест</th>
+                <th>Прошли</th>
+                <th>Остановились</th>
+                <th>Ср. время</th>
+              </tr>
+            </thead>
+            <tbody id="questTableBody"></tbody>
+          </table>
+        </div>
+
+        <p class="empty" id="questEmpty" hidden>За этот период ни один квест не пройден.</p>
+      </section>
     </main>
   </div>
 
@@ -227,7 +271,12 @@
     days: 14,
     view: 'chart', // 'chart' | 'table'
     hidden: new Set(),
-    rows: []
+    rows: [],
+
+    // Период для квестов свой: прохождение сюжета растянуто на недели, и на
+    // тех же 14 днях, что и запуски, хвост воронки почти всегда пустой.
+    questDays: 30,
+    questRows: []
   };
 
   var els = {
@@ -249,7 +298,11 @@
     legend: document.getElementById('legend'),
     tableWrap: document.getElementById('tableWrap'),
     tableBody: document.getElementById('dataTableBody'),
-    emptyState: document.getElementById('emptyState')
+    emptyState: document.getElementById('emptyState'),
+    questRangeGroup: document.getElementById('questRangeGroup'),
+    questSummary: document.getElementById('questSummary'),
+    questTableBody: document.getElementById('questTableBody'),
+    questEmpty: document.getElementById('questEmpty')
   };
 
   // --- Ключ -----------------------------------------------------------
@@ -319,7 +372,8 @@
 
     return Promise.all([
       fetchJSON('/v1/stats/overview'),
-      fetchJSON('/v1/stats/launches?days=' + state.days)
+      fetchJSON('/v1/stats/launches?days=' + state.days),
+      loadQuests()
     ]).then(function (results) {
       renderOverview(results[0]);
       state.rows = results[1].rows || [];
@@ -422,6 +476,23 @@
     });
   }
 
+  Array.prototype.forEach.call(els.questRangeGroup.querySelectorAll('.chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      state.questDays = Number(chip.dataset.days);
+      updateQuestRangeChips();
+      // Перезагружаем только квесты: график запусков живёт на своём периоде.
+      loadQuests().catch(function () { els.status.textContent = 'Ошибка загрузки данных'; });
+    });
+  });
+
+  function updateQuestRangeChips() {
+    Array.prototype.forEach.call(els.questRangeGroup.querySelectorAll('.chip'), function (chip) {
+      var active = Number(chip.dataset.days) === state.questDays;
+      chip.classList.toggle('active', active);
+      chip.setAttribute('aria-pressed', String(active));
+    });
+  }
+
   els.viewToggle.addEventListener('click', function () {
     state.view = state.view === 'chart' ? 'table' : 'chart';
     els.viewToggle.textContent = state.view === 'chart' ? 'Таблица' : 'График';
@@ -464,6 +535,104 @@
       });
       els.tableBody.appendChild(tr);
     });
+  }
+
+  // --- Прогресс по квестам --------------------------------------------------
+
+  function loadQuests() {
+    return fetchJSON('/v1/stats/quests?days=' + state.questDays).then(function (data) {
+      state.questRows = data.rows || [];
+      renderQuests(data.summary);
+      return data;
+    });
+  }
+
+  function formatDuration(seconds) {
+    var total = toNumber(seconds);
+    if (total <= 0) return '—';
+    if (total < 60) return total + ' с';
+    return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+  }
+
+  function renderQuests(summary) {
+    var rows = state.questRows;
+
+    els.questTableBody.innerHTML = '';
+    els.questEmpty.hidden = rows.length > 0;
+
+    if (rows.length === 0) {
+      els.questSummary.textContent = '';
+      return;
+    }
+
+    if (summary && summary.installs) {
+      var ofTotal = summary.queue_length ? ' из ' + summary.queue_length : '';
+
+      els.questSummary.textContent =
+        'Установок с пройденными квестами: ' + formatExact(summary.installs) +
+        '. Половина игроков не уходит дальше шага ' + summary.median_last_index + ofTotal +
+        ', максимум — шаг ' + summary.max_last_index + '.';
+    } else {
+      els.questSummary.textContent = '';
+    }
+
+    // Полосы меряем от самого массового шага, а не от первой строки: за короткий
+    // период первый квест может быть уже пройден теми, кто начал раньше окна.
+    var maxCompleted = rows.reduce(function (max, row) {
+      return Math.max(max, toNumber(row.installs_completed));
+    }, 0);
+
+    // Порог «здесь заметно отваливаются»: пятая часть всех дошедших до пика.
+    var dropoffThreshold = Math.max(1, maxCompleted * 0.2);
+
+    rows.forEach(function (row) {
+      var tr = document.createElement('tr');
+
+      tr.appendChild(cell(String(row.queue_index)));
+      tr.appendChild(cell(row.quest_day || '—'));
+
+      var nameCell = cell(row.quest_name || '—');
+      nameCell.className = 'quest-name';
+      nameCell.title = row.quest_name || '';
+      tr.appendChild(nameCell);
+
+      var completed = toNumber(row.installs_completed);
+      var barCell = document.createElement('td');
+      barCell.className = 'bar-cell';
+
+      var bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.width = (maxCompleted > 0 ? (completed / maxCompleted) * 100 : 0) + '%';
+
+      var barValue = document.createElement('span');
+      barValue.className = 'bar-value';
+      barValue.textContent = formatExact(completed);
+      barValue.title = formatExact(row.completions) + ' прохождений всего';
+
+      barCell.appendChild(bar);
+      barCell.appendChild(barValue);
+      tr.appendChild(barCell);
+
+      var stopped = toNumber(row.installs_stopped_here);
+      var stoppedCell = cell(stopped > 0 ? formatExact(stopped) : '—');
+
+      if (stopped >= dropoffThreshold) {
+        stoppedCell.className = 'dropoff-high';
+      }
+
+      tr.appendChild(stoppedCell);
+      tr.appendChild(cell(formatDuration(row.avg_seconds)));
+
+      els.questTableBody.appendChild(tr);
+    });
+  }
+
+  // textContent, а не innerHTML: имена квестов приходят из клиента игры,
+  // подставлять их в разметку как есть нельзя.
+  function cell(text) {
+    var td = document.createElement('td');
+    td.textContent = text;
+    return td;
   }
 
   // --- Легенда --------------------------------------------------------------
@@ -725,6 +894,7 @@
     }
     showApp();
     updateRangeChips();
+    updateQuestRangeChips();
     loadAll();
   }
 
