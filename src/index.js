@@ -299,6 +299,34 @@ function summariseProgress(rows) {
     };
 }
 
+// --- ВРЕМЕННОЕ: сброс статистики -----------------------------------------
+// Нужно, пока данные — это тестовые прогоны разработчиков. Удаляется вместе с
+// кнопкой «Сброс аналитики» в dashboard.html, как только пойдут живые игроки.
+
+app.post('/v1/admin/reset', {
+    onRequest: requireKey(process.env.ADMIN_KEY)
+}, async (request, reply) => {
+    // ADMIN_KEY уже лежит в localStorage браузера, так что одного ключа мало:
+    // без слова-подтверждения база стиралась бы случайным POST по открытой вкладке.
+    if (request.body?.confirm !== 'RESET') {
+        return reply.code(400).send({ error: 'confirmation_required' });
+    }
+
+    // Считаем до удаления: truncate количество строк не возвращает, а показать
+    // в дашборде, сколько именно снесли, полезно.
+    const { rows } = await pool.query('select count(*)::int as total from events');
+
+    // truncate, а не delete: не пишет строку за строкой в WAL и сразу отдаёт место.
+    // Таблица одна и ни на что не ссылается, каскадов бояться нечего.
+    await pool.query('truncate table events');
+
+    request.log.warn({ deleted: rows[0].total }, 'аналитика сброшена через /v1/admin/reset');
+
+    return { deleted: rows[0].total };
+});
+
+// --- Конец временного блока ----------------------------------------------
+
 // --- Дашборд --------------------------------------------------------------
 
 // Страница сама по себе не отдаёт данных — это статический HTML+JS, ключ

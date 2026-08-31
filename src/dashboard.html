@@ -64,6 +64,9 @@
   .btn-ghost { background: transparent; }
   .btn-primary { background: var(--series-1); color: #fff; border-color: transparent; }
   .btn-primary:hover { filter: brightness(1.05); }
+  /* ВРЕМЕННОЕ: только для кнопки сброса аналитики, удаляется вместе с ней. */
+  .btn-danger { background: var(--critical); color: #fff; border-color: transparent; }
+  .btn-danger:hover { background: var(--critical); filter: brightness(1.05); }
 
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
   .muted { color: var(--text-secondary); font-size: 13px; }
@@ -165,6 +168,8 @@
       <div class="topbar-actions">
         <button id="refreshBtn" class="btn btn-ghost" type="button" hidden>Обновить</button>
         <button id="changeKeyBtn" class="btn btn-ghost" type="button" hidden>Сменить ключ</button>
+        <!-- ВРЕМЕННОЕ: сброс базы на время отладки, убрать вместе с /v1/admin/reset -->
+        <button id="resetBtn" class="btn btn-danger" type="button" hidden>Сброс аналитики</button>
       </div>
     </header>
 
@@ -289,6 +294,7 @@
     status: document.getElementById('status'),
     refreshBtn: document.getElementById('refreshBtn'),
     changeKeyBtn: document.getElementById('changeKeyBtn'),
+    resetBtn: document.getElementById('resetBtn'),
     kpiRow: document.getElementById('kpiRow'),
     lastEvent: document.getElementById('lastEvent'),
     rangeGroup: document.getElementById('rangeGroup'),
@@ -325,6 +331,7 @@
     els.app.hidden = true;
     els.refreshBtn.hidden = true;
     els.changeKeyBtn.hidden = true;
+    els.resetBtn.hidden = true;
     els.gateError.hidden = !message;
     els.gateError.textContent = message || '';
     els.keyInput.focus();
@@ -335,6 +342,7 @@
     els.app.hidden = false;
     els.refreshBtn.hidden = false;
     els.changeKeyBtn.hidden = false;
+    els.resetBtn.hidden = false;
   }
 
   els.gateForm.addEventListener('submit', function (event) {
@@ -352,6 +360,51 @@
   });
 
   els.refreshBtn.addEventListener('click', function () { loadAll(); });
+
+  // --- ВРЕМЕННОЕ: сброс аналитики ---------------------------------------
+  // Убрать вместе с кнопкой #resetBtn, стилем .btn-danger и роутом
+  // /v1/admin/reset на сервере, когда пойдут живые игроки.
+
+  els.resetBtn.addEventListener('click', function () {
+    // prompt, а не confirm: ключ уже сохранён в браузере, и одного «ОК» для
+    // необратимого удаления всей статистики мало.
+    var answer = window.prompt(
+      'Удалить ВСЕ собранные события? Восстановить будет нельзя.\n\nВведите RESET для подтверждения:'
+    );
+
+    if (answer !== 'RESET') return;
+
+    els.resetBtn.disabled = true;
+    els.status.textContent = 'Сброс…';
+
+    fetch('/v1/admin/reset', {
+      method: 'POST',
+      headers: { 'X-Api-Key': getKey(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'RESET' })
+    }).then(function (res) {
+      if (res.status === 401) {
+        clearKey();
+        showGate('Неверный ключ.');
+        return null;
+      }
+      if (!res.ok) throw new Error('reset_failed');
+      return res.json();
+    }).then(function (data) {
+      if (!data) return;
+      els.status.textContent = 'Удалено событий: ' + data.deleted;
+      // alert, а не #status: тот sr-only и виден только скринридеру, а по пустому
+      // дашборду не отличить «сбросилось» от «не туда нажал».
+      window.alert('Удалено событий: ' + data.deleted);
+      return loadAll();
+    }).catch(function () {
+      els.status.textContent = 'Не удалось сбросить аналитику';
+      window.alert('Не удалось сбросить аналитику.');
+    }).finally(function () {
+      els.resetBtn.disabled = false;
+    });
+  });
+
+  // --- Конец временного блока -------------------------------------------
 
   // --- Загрузка данных --------------------------------------------------
 
