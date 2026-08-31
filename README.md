@@ -27,6 +27,7 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 | POST | `/v1/events` | `X-Api-Key: $INGEST_KEY` | приём пачки событий, до 100 за раз |
 | GET | `/v1/stats/launches?days=14` | `X-Api-Key: $ADMIN_KEY` | запуски по дням: всего, уникальных, новых установок |
 | GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий |
+| GET | `/dashboard` | — (ключ вводится в браузере) | визуальный дашборд статистики |
 | GET | `/health` | — | healthcheck |
 
 Пример пачки:
@@ -51,6 +52,15 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 ```
 
 Ответ: `202 {"accepted": 1, "duplicates": 0, "steam_verified": true}`.
+
+## Дашборд
+
+`GET /dashboard` — статическая страница ([src/dashboard.html](src/dashboard.html)), сама по себе
+не требует ключа: цифры она тянет с уже защищённых `/v1/stats/*`. При первом
+открытии просит `ADMIN_KEY`, сохраняет его в `localStorage` браузера и дальше
+шлёт как `X-Api-Key` в каждом запросе. KPI (DAU/MAU/установки/запуски/события),
+график запусков по дням (7/14/30/90) с переключаемыми сериями и переключением
+на табличный вид. Собрана на чистом SVG без внешних зависимостей и CDN.
 
 ## Что стоит знать
 

@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bunker Analytics</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:        #e1e0d9;
+    --axis:        #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --success:     #006300;
+    --critical:    #d03b3b;
+    --series-1:    #2a78d6; /* launches */
+    --series-2:    #eb6834; /* unique installs */
+    --series-3:    #1baf7a; /* new installs */
+    --series-4:    #eda100; /* steam accounts */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page:        #0d0d0d;
+      --surface:     #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:        #2c2c2a;
+      --axis:        #383835;
+      --border:      rgba(255,255,255,0.10);
+      --success:     #0ca30c;
+      --critical:    #e66767;
+      --series-1:    #3987e5;
+      --series-2:    #d95926;
+      --series-3:    #199e70;
+      --series-4:    #c98500;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .page { max-width: 1040px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  .topbar h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .topbar-actions { display: flex; gap: 8px; }
+
+  .btn {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    border-radius: 8px; padding: 7px 12px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-primary);
+  }
+  .btn:hover { background: var(--grid); }
+  .btn-ghost { background: transparent; }
+  .btn-primary { background: var(--series-1); color: #fff; border-color: transparent; }
+  .btn-primary:hover { filter: brightness(1.05); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .muted { color: var(--text-secondary); font-size: 13px; }
+
+  .gate { max-width: 360px; margin: 60px auto; text-align: left; }
+  .gate h2 { margin: 0 0 6px; font-size: 16px; }
+  .gate form { display: flex; gap: 8px; margin-top: 14px; }
+  .gate input {
+    flex: 1; font: inherit; font-size: 14px; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--page); color: var(--text-primary);
+  }
+  .error { color: var(--critical); font-size: 13px; margin-top: 10px; }
+
+  #app { transition: opacity .15s ease; }
+  #app.is-loading { opacity: .6; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 8px; }
+  .kpi-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .kpi-label { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
+  .kpi-value { font-size: 26px; font-weight: 600; margin: 0; }
+
+  .footnote { font-size: 12px; color: var(--text-muted); margin: 4px 2px 24px; }
+
+  .chart-card { margin-top: 4px; }
+  .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .chart-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+  .range-group { display: flex; gap: 6px; }
+  .chip {
+    font: inherit; font-size: 12px; cursor: pointer; padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+  }
+  .chip:hover { background: var(--grid); }
+  .chip.active { background: var(--series-1); color: #fff; border-color: transparent; }
+
+  .chart-wrap { position: relative; width: 100%; }
+  .chart-svg { width: 100%; height: 332px; display: block; overflow: visible; }
+  .line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .end-dot { stroke: var(--surface); stroke-width: 2; }
+  .s1 { stroke: var(--series-1); fill: var(--series-1); }
+  .s2 { stroke: var(--series-2); fill: var(--series-2); }
+  .s3 { stroke: var(--series-3); fill: var(--series-3); }
+  .s4 { stroke: var(--series-4); fill: var(--series-4); }
+  .series-hidden { opacity: .12; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axis-text { fill: var(--text-muted); font-size: 11px; }
+  .end-label { fill: var(--text-secondary); font-size: 11px; font-weight: 600; }
+  .crosshair { stroke: var(--axis); stroke-width: 1; pointer-events: none; }
+  .hover-dot { stroke: var(--surface); stroke-width: 2; pointer-events: none; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; min-width: 150px;
+    box-shadow: 0 4px 16px rgba(0,0,0,.12); z-index: 5;
+  }
+  .tooltip-date { color: var(--text-muted); margin-bottom: 6px; }
+  .tooltip-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .tooltip-key { width: 10px; height: 2px; border-radius: 1px; flex: none; }
+  .tooltip-value { font-weight: 600; color: var(--text-primary); }
+  .tooltip-name { color: var(--text-secondary); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);
+    cursor: pointer; background: none; border: none; font: inherit; padding: 4px 2px;
+  }
+  .legend-swatch { width: 16px; height: 2px; border-radius: 1px; flex: none; }
+  .legend-item.is-off { color: var(--text-muted); text-decoration: line-through; }
+  .legend-item.is-off .legend-swatch { opacity: .3; }
+
+  .table-wrap { overflow-x: auto; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; font-variant-numeric: normal; }
+  th { color: var(--text-secondary); font-weight: 500; }
+
+  .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <h1>Bunker Analytics</h1>
+      <div class="topbar-actions">
+        <button id="refreshBtn" class="btn btn-ghost" type="button" hidden>Обновить</button>
+        <button id="changeKeyBtn" class="btn btn-ghost" type="button" hidden>Сменить ключ</button>
+      </div>
+    </header>
+
+    <section id="gate" class="card gate">
+      <h2>Введите ADMIN_KEY</h2>
+      <p class="muted">Тот же ключ, что задан в переменной окружения сервера. Хранится только в этом браузере (localStorage), в билд игры не попадает.</p>
+      <form id="gateForm">
+        <input id="keyInput" type="password" autocomplete="off" placeholder="ADMIN_KEY" required>
+        <button type="submit" class="btn btn-primary">Войти</button>
+      </form>
+      <p id="gateError" class="error" hidden></p>
+    </section>
+
+    <main id="app" hidden>
+      <span id="status" class="sr-only" aria-live="polite"></span>
+
+      <section class="kpi-row" id="kpiRow" aria-label="Ключевые показатели"></section>
+      <p class="footnote" id="lastEvent"></p>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h2>Запуски по дням</h2>
+          <div class="range-group" id="rangeGroup" role="group" aria-label="Период">
+            <button type="button" class="chip" data-days="7">7 дней</button>
+            <button type="button" class="chip" data-days="14">14 дней</button>
+            <button type="button" class="chip" data-days="30">30 дней</button>
+            <button type="button" class="chip" data-days="90">90 дней</button>
+          </div>
+          <button type="button" class="btn btn-ghost" id="viewToggle">Таблица</button>
+        </div>
+
+        <div id="chartWrap" class="chart-wrap">
+          <svg id="chartSvg" class="chart-svg"></svg>
+          <div id="tooltip" class="tooltip" hidden></div>
+        </div>
+        <div id="legend" class="legend" aria-label="Легенда"></div>
+
+        <div id="tableWrap" class="table-wrap" hidden>
+          <table id="dataTable">
+            <thead>
+              <tr>
+                <th>День</th>
+                <th>Запуски</th>
+                <th>Уник. установки</th>
+                <th>Новые установки</th>
+                <th>Steam-аккаунты</th>
+              </tr>
+            </thead>
+            <tbody id="dataTableBody"></tbody>
+          </table>
+        </div>
+
+        <p class="empty" id="emptyState" hidden>Нет данных за этот период.</p>
+      </section>
+    </main>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'bunker_admin_key';
+
+  var SERIES = [
+    { key: 'launches', label: 'Запуски', cls: 's1' },
+    { key: 'unique_installs', label: 'Уник. установки', cls: 's2' },
+    { key: 'new_installs', label: 'Новые установки', cls: 's3' },
+    { key: 'unique_steam_accounts', label: 'Steam-аккаунты', cls: 's4' }
+  ];
+
+  var state = {
+    days: 14,
+    view: 'chart', // 'chart' | 'table'
+    hidden: new Set(),
+    rows: []
+  };
+
+  var els = {
+    gate: document.getElementById('gate'),
+    gateForm: document.getElementById('gateForm'),
+    keyInput: document.getElementById('keyInput'),
+    gateError: document.getElementById('gateError'),
+    app: document.getElementById('app'),
+    status: document.getElementById('status'),
+    refreshBtn: document.getElementById('refreshBtn'),
+    changeKeyBtn: document.getElementById('changeKeyBtn'),
+    kpiRow: document.getElementById('kpiRow'),
+    lastEvent: document.getElementById('lastEvent'),
+    rangeGroup: document.getElementById('rangeGroup'),
+    viewToggle: document.getElementById('viewToggle'),
+    chartWrap: document.getElementById('chartWrap'),
+    chartSvg: document.getElementById('chartSvg'),
+    tooltip: document.getElementById('tooltip'),
+    legend: document.getElementById('legend'),
+    tableWrap: document.getElementById('tableWrap'),
+    tableBody: document.getElementById('dataTableBody'),
+    emptyState: document.getElementById('emptyState')
+  };
+
+  // --- Ключ -----------------------------------------------------------
+
+  function getKey() {
+    try { return localStorage.getItem(STORAGE_KEY); } catch (e) { return null; }
+  }
+
+  function setKey(key) {
+    try { localStorage.setItem(STORAGE_KEY, key); } catch (e) { /* приватный режим — переживём и без сохранения */ }
+  }
+
+  function clearKey() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  }
+
+  function showGate(message) {
+    els.gate.hidden = false;
+    els.app.hidden = true;
+    els.refreshBtn.hidden = true;
+    els.changeKeyBtn.hidden = true;
+    els.gateError.hidden = !message;
+    els.gateError.textContent = message || '';
+    els.keyInput.focus();
+  }
+
+  function showApp() {
+    els.gate.hidden = true;
+    els.app.hidden = false;
+    els.refreshBtn.hidden = false;
+    els.changeKeyBtn.hidden = false;
+  }
+
+  els.gateForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    var value = els.keyInput.value.trim();
+    if (!value) return;
+    setKey(value);
+    boot();
+  });
+
+  els.changeKeyBtn.addEventListener('click', function () {
+    clearKey();
+    els.keyInput.value = '';
+    showGate();
+  });
+
+  els.refreshBtn.addEventListener('click', function () { loadAll(); });
+
+  // --- Загрузка данных --------------------------------------------------
+
+  function fetchJSON(url) {
+    return fetch(url, { headers: { 'X-Api-Key': getKey() } }).then(function (res) {
+      if (res.status === 401) {
+        var err = new Error('unauthorized');
+        err.unauthorized = true;
+        throw err;
+      }
+      if (!res.ok) throw new Error('request_failed');
+      return res.json();
+    });
+  }
+
+  function loadAll() {
+    els.app.classList.add('is-loading');
+    els.status.textContent = 'Загрузка…';
+
+    return Promise.all([
+      fetchJSON('/v1/stats/overview'),
+      fetchJSON('/v1/stats/launches?days=' + state.days)
+    ]).then(function (results) {
+      renderOverview(results[0]);
+      state.rows = results[1].rows || [];
+      renderChartOrTable();
+      els.status.textContent = 'Обновлено';
+    }).catch(function (error) {
+      if (error && error.unauthorized) {
+        clearKey();
+        showGate('Неверный ключ.');
+        return;
+      }
+      els.status.textContent = 'Ошибка загрузки данных';
+    }).finally(function () {
+      els.app.classList.remove('is-loading');
+    });
+  }
+
+  // --- Форматирование ----------------------------------------------------
+
+  function toNumber(value) {
+    var n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function formatCompact(value) {
+    var n = toNumber(value);
+    var abs = Math.abs(n);
+    if (abs >= 1000000) return trimZero((n / 1000000).toFixed(1)) + 'M';
+    if (abs >= 1000) return trimZero((n / 1000).toFixed(1)) + 'K';
+    return String(n);
+  }
+
+  function trimZero(value) {
+    return value.replace(/\.0$/, '');
+  }
+
+  function formatExact(value) {
+    return toNumber(value).toLocaleString('ru-RU');
+  }
+
+  function formatDay(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  }
+
+  function formatDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    return d.toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  // --- KPI ----------------------------------------------------------------
+
+  function renderOverview(overview) {
+    var tiles = [
+      { label: 'DAU', value: overview.dau },
+      { label: 'MAU', value: overview.mau },
+      { label: 'Установок всего', value: overview.installs_total },
+      { label: 'Запусков всего', value: overview.launches_total },
+      { label: 'Событий всего', value: overview.events_total }
+    ];
+
+    els.kpiRow.innerHTML = '';
+    tiles.forEach(function (tile) {
+      var el = document.createElement('div');
+      el.className = 'kpi-tile';
+
+      var label = document.createElement('p');
+      label.className = 'kpi-label';
+      label.textContent = tile.label;
+
+      var value = document.createElement('p');
+      value.className = 'kpi-value';
+      value.textContent = formatCompact(tile.value);
+      value.title = formatExact(tile.value);
+
+      el.appendChild(label);
+      el.appendChild(value);
+      els.kpiRow.appendChild(el);
+    });
+
+    els.lastEvent.textContent = 'Последнее событие: ' + formatDateTime(overview.last_event_at);
+  }
+
+  // --- Переключение периода / вида ----------------------------------------
+
+  Array.prototype.forEach.call(els.rangeGroup.querySelectorAll('.chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      state.days = Number(chip.dataset.days);
+      updateRangeChips();
+      loadAll();
+    });
+  });
+
+  function updateRangeChips() {
+    Array.prototype.forEach.call(els.rangeGroup.querySelectorAll('.chip'), function (chip) {
+      var active = Number(chip.dataset.days) === state.days;
+      chip.classList.toggle('active', active);
+      chip.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  els.viewToggle.addEventListener('click', function () {
+    state.view = state.view === 'chart' ? 'table' : 'chart';
+    els.viewToggle.textContent = state.view === 'chart' ? 'Таблица' : 'График';
+    renderChartOrTable();
+  });
+
+  function renderChartOrTable() {
+    var hasData = state.rows.length > 0;
+    els.emptyState.hidden = hasData;
+    els.chartWrap.hidden = !hasData || state.view !== 'chart';
+    els.legend.hidden = !hasData || state.view !== 'chart';
+    els.tableWrap.hidden = !hasData || state.view !== 'table';
+
+    if (!hasData) return;
+
+    if (state.view === 'chart') {
+      renderChart();
+    } else {
+      renderTable();
+    }
+  }
+
+  // --- Таблица (доступный эквивалент графика) -----------------------------
+
+  function renderTable() {
+    els.tableBody.innerHTML = '';
+    // API отдаёт дни по убыванию — так и показываем в таблице.
+    state.rows.forEach(function (row) {
+      var tr = document.createElement('tr');
+      [
+        formatDay(row.day),
+        formatExact(row.launches),
+        formatExact(row.unique_installs),
+        formatExact(row.new_installs),
+        formatExact(row.unique_steam_accounts)
+      ].forEach(function (text) {
+        var td = document.createElement('td');
+        td.textContent = text;
+        tr.appendChild(td);
+      });
+      els.tableBody.appendChild(tr);
+    });
+  }
+
+  // --- Легенда --------------------------------------------------------------
+
+  function renderLegend() {
+    els.legend.innerHTML = '';
+    SERIES.forEach(function (series) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'legend-item' + (state.hidden.has(series.key) ? ' is-off' : '');
+      btn.setAttribute('aria-pressed', String(!state.hidden.has(series.key)));
+
+      var swatch = document.createElement('span');
+      swatch.className = 'legend-swatch ' + series.cls;
+
+      var label = document.createElement('span');
+      label.textContent = series.label;
+
+      btn.appendChild(swatch);
+      btn.appendChild(label);
+      btn.addEventListener('click', function () {
+        if (state.hidden.has(series.key)) {
+          state.hidden.delete(series.key);
+        } else {
+          state.hidden.add(series.key);
+        }
+        renderChart();
+      });
+
+      els.legend.appendChild(btn);
+    });
+  }
+
+  // --- График (ручной SVG, без внешних библиотек) --------------------------
+
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function svgEl(tag, attrs) {
+    var el = document.createElementNS(SVG_NS, tag);
+    for (var key in attrs) el.setAttribute(key, attrs[key]);
+    return el;
+  }
+
+  function niceMax(value) {
+    if (value <= 0) return 4;
+    var magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+    var steps = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < steps.length; i++) {
+      var candidate = steps[i] * magnitude;
+      if (candidate >= value) return candidate;
+    }
+    return 10 * magnitude;
+  }
+
+  function renderChart() {
+    renderLegend();
+
+    var svg = els.chartSvg;
+    svg.innerHTML = '';
+
+    // Хронологический порядок для графика: API отдаёт дни по убыванию.
+    var rows = state.rows.slice().reverse();
+    var visibleSeries = SERIES.filter(function (s) { return !state.hidden.has(s.key); });
+
+    var width = els.chartWrap.clientWidth || 600;
+    var height = 332;
+    var margin = { top: 16, right: 84, bottom: 28, left: 44 };
+    var plotWidth = Math.max(width - margin.left - margin.right, 10);
+    var plotHeight = height - margin.top - margin.bottom;
+
+    svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+
+    var maxValue = 0;
+    visibleSeries.forEach(function (series) {
+      rows.forEach(function (row) {
+        maxValue = Math.max(maxValue, toNumber(row[series.key]));
+      });
+    });
+    var yMax = niceMax(maxValue);
+
+    var stepX = rows.length > 1 ? plotWidth / (rows.length - 1) : 0;
+    function xAt(index) { return margin.left + (rows.length > 1 ? index * stepX : plotWidth / 2); }
+    function yAt(value) { return margin.top + plotHeight - (value / yMax) * plotHeight; }
+
+    // Сетка + подписи оси Y (округлённые значения, 4 деления).
+    var gridTicks = 4;
+    for (var t = 0; t <= gridTicks; t++) {
+      var value = (yMax / gridTicks) * t;
+      var y = yAt(value);
+      svg.appendChild(svgEl('line', {
+        class: 'gridline', x1: margin.left, x2: width - margin.right, y1: y, y2: y
+      }));
+      var label = svgEl('text', { class: 'axis-text', x: margin.left - 8, y: y + 3, 'text-anchor': 'end' });
+      label.textContent = formatCompact(value);
+      svg.appendChild(label);
+    }
+
+    // Подписи оси X — прореживаем, чтобы не наслаивались.
+    var maxLabels = Math.max(Math.floor(plotWidth / 56), 2);
+    var labelEvery = Math.max(Math.ceil(rows.length / maxLabels), 1);
+    rows.forEach(function (row, index) {
+      if (index % labelEvery !== 0 && index !== rows.length - 1) return;
+      var text = svgEl('text', { class: 'axis-text', x: xAt(index), y: height - 6, 'text-anchor': 'middle' });
+      text.textContent = formatDay(row.day);
+      svg.appendChild(text);
+    });
+
+    // Линии серий.
+    var endLabels = [];
+    visibleSeries.forEach(function (series) {
+      var points = rows.map(function (row, index) {
+        return xAt(index) + ',' + yAt(toNumber(row[series.key]));
+      });
+      svg.appendChild(svgEl('polyline', { class: 'line ' + series.cls, points: points.join(' ') }));
+
+      var lastRow = rows[rows.length - 1];
+      var lastValue = toNumber(lastRow[series.key]);
+      var endX = xAt(rows.length - 1);
+      var endY = yAt(lastValue);
+
+      svg.appendChild(svgEl('circle', { class: 'end-dot ' + series.cls, cx: endX, cy: endY, r: 4 }));
+      endLabels.push({ series: series, y: endY, value: lastValue });
+    });
+
+    // Прямые подписи у конца линий — с простым разведением по вертикали,
+    // чтобы близкие значения не наезжали друг на друга.
+    endLabels.sort(function (a, b) { return a.y - b.y; });
+    for (var i = 1; i < endLabels.length; i++) {
+      var minGap = 14;
+      if (endLabels[i].y - endLabels[i - 1].y < minGap) {
+        endLabels[i].y = endLabels[i - 1].y + minGap;
+      }
+    }
+    endLabels.forEach(function (item) {
+      var lx = width - margin.right + 10;
+      svg.appendChild(svgEl('line', {
+        class: item.series.cls, x1: width - margin.right + 2, x2: lx - 2, y1: item.y, y2: item.y, 'stroke-width': 2
+      }));
+      var text = svgEl('text', { class: 'end-label', x: lx, y: item.y + 3 });
+      text.textContent = formatCompact(item.value);
+      svg.appendChild(text);
+    });
+
+    // Слой наведения: одна невидимая область на весь график, курсор снэпится
+    // к ближайшему дню, тултип показывает все видимые серии разом.
+    var overlay = svgEl('rect', {
+      x: margin.left, y: margin.top, width: plotWidth, height: plotHeight,
+      fill: 'transparent'
+    });
+
+    var crosshair = svgEl('line', { class: 'crosshair', y1: margin.top, y2: margin.top + plotHeight, hidden: 'true' });
+    svg.appendChild(crosshair);
+
+    var hoverDots = visibleSeries.map(function (series) {
+      var dot = svgEl('circle', { class: 'hover-dot ' + series.cls, r: 4, hidden: 'true' });
+      svg.appendChild(dot);
+      return { series: series, el: dot };
+    });
+
+    function handleMove(event) {
+      var rect = svg.getBoundingClientRect();
+      var scale = width / rect.width;
+      var relX = (event.clientX - rect.left) * scale - margin.left;
+      var index = rows.length > 1 ? Math.round(relX / stepX) : 0;
+      index = Math.max(0, Math.min(rows.length - 1, index));
+
+      var x = xAt(index);
+      crosshair.setAttribute('x1', x);
+      crosshair.setAttribute('x2', x);
+      crosshair.removeAttribute('hidden');
+
+      var row = rows[index];
+      var lines = [];
+      hoverDots.forEach(function (item) {
+        var value = toNumber(row[item.series.key]);
+        item.el.setAttribute('cx', x);
+        item.el.setAttribute('cy', yAt(value));
+        item.el.removeAttribute('hidden');
+        lines.push({ series: item.series, value: value });
+      });
+
+      showTooltip(event, row.day, lines);
+    }
+
+    function handleLeave() {
+      crosshair.setAttribute('hidden', 'true');
+      hoverDots.forEach(function (item) { item.el.setAttribute('hidden', 'true'); });
+      hideTooltip();
+    }
+
+    overlay.addEventListener('pointermove', handleMove);
+    overlay.addEventListener('pointerleave', handleLeave);
+    svg.appendChild(overlay);
+  }
+
+  function showTooltip(event, day, lines) {
+    var tooltip = els.tooltip;
+    tooltip.innerHTML = '';
+
+    var dateEl = document.createElement('div');
+    dateEl.className = 'tooltip-date';
+    dateEl.textContent = formatDay(day);
+    tooltip.appendChild(dateEl);
+
+    lines.forEach(function (line) {
+      var row = document.createElement('div');
+      row.className = 'tooltip-row';
+
+      var key = document.createElement('span');
+      key.className = 'tooltip-key ' + line.series.cls;
+
+      var value = document.createElement('span');
+      value.className = 'tooltip-value';
+      value.textContent = formatExact(line.value);
+
+      var name = document.createElement('span');
+      name.className = 'tooltip-name';
+      name.textContent = line.series.label;
+
+      row.appendChild(key);
+      row.appendChild(value);
+      row.appendChild(name);
+      tooltip.appendChild(row);
+    });
+
+    tooltip.hidden = false;
+
+    var wrapRect = els.chartWrap.getBoundingClientRect();
+    var left = event.clientX - wrapRect.left + 14;
+    var top = event.clientY - wrapRect.top - tooltip.offsetHeight / 2;
+
+    if (left + tooltip.offsetWidth > wrapRect.width) {
+      left = event.clientX - wrapRect.left - tooltip.offsetWidth - 14;
+    }
+    top = Math.max(0, Math.min(top, wrapRect.height - tooltip.offsetHeight));
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+
+  function hideTooltip() {
+    els.tooltip.hidden = true;
+  }
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    if (state.view !== 'chart' || state.rows.length === 0) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderChart, 100);
+  });
+
+  // --- Инициализация -------------------------------------------------------
+
+  function boot() {
+    var key = getKey();
+    if (!key) {
+      showGate();
+      return;
+    }
+    showApp();
+    updateRangeChips();
+    loadAll();
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

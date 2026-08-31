@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import Fastify from 'fastify';
 
 import { pool } from './db.js';
@@ -5,6 +9,13 @@ import { migrate } from './migrate.js';
 import { verifySteamTicket } from './steam.js';
 
 const MAX_EVENTS_PER_BATCH = 100;
+
+// Статическая страница дашборда, отдаётся как есть — читаем один раз на старте,
+// а не на каждый запрос: файл не меняется, пока процесс жив.
+const DASHBOARD_HTML = await readFile(
+    join(dirname(fileURLToPath(import.meta.url)), 'dashboard.html'),
+    'utf8'
+);
 
 const app = Fastify({
     // Railway терминирует TLS перед контейнером, поэтому реальный IP игрока
@@ -188,6 +199,15 @@ app.get('/v1/stats/overview', {
     );
 
     return rows[0];
+});
+
+// --- Дашборд --------------------------------------------------------------
+
+// Страница сама по себе не отдаёт данных — это статический HTML+JS, ключ
+// ADMIN_KEY вводится в браузере вручную и хранится в localStorage, а сами
+// цифры идут через уже защищённые /v1/stats/*. Поэтому роут без requireKey.
+app.get('/dashboard', async (request, reply) => {
+    reply.type('text/html; charset=utf-8').send(DASHBOARD_HTML);
 });
 
 // Railway дёргает этот путь как healthcheck: пока он не ответит 200,
