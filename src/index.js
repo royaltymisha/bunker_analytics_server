@@ -317,6 +317,55 @@ function summariseProgress(rows) {
     };
 }
 
+// Ошибки консоли, сгруппированные по хешу (сообщение + верх стека, считает клиент).
+// Один и тот же NullReference у сотни игроков — одна строка со счётчиками, а не сто.
+app.get('/v1/stats/errors', {
+    onRequest: requireKey(process.env.ADMIN_KEY)
+}, async (request) => {
+    const days = Math.min(Math.max(Number(request.query.days ?? 30) || 30, 1), 365);
+    const limit = Math.min(Math.max(Number(request.query.limit ?? 200) || 200, 1), 1000);
+
+    const { rows } = await pool.query(
+        `with errors as (select install_id,
+                                session_id,
+                                app_version,
+                                received_at,
+                                props ->> 'type'    as type,
+                                props ->> 'message' as message,
+                                props ->> 'stack'   as stack,
+                                props ->> 'scene'   as scene,
+                                -- Хеш клиента, а без него — md5 сообщения: старые билды его не шлют.
+                                coalesce(props ->> 'hash', md5(coalesce(props ->> 'message', ''))) as key
+                         from events
+                         where name = 'console_error'
+                           and received_at >= now() - make_interval(days => $1::int))
+         select key,
+                mode() within group (order by type)                as type,
+                mode() within group (order by message)             as message,
+                count(*)                                           as occurrences,
+                count(distinct install_id)                         as installs,
+                count(distinct session_id)                         as sessions,
+                min(received_at)                                   as first_seen,
+                max(received_at)                                   as last_seen,
+                -- Стек и сцена из самого свежего события группы.
+                (array_agg(stack order by received_at desc))[1]    as stack,
+                (array_agg(scene order by received_at desc))[1]    as scene,
+                array_agg(distinct app_version)                    as app_versions
+         from errors
+         group by key
+         order by last_seen desc
+         limit $2`,
+        [days, limit]
+    );
+
+    const summary = rows.reduce((acc, row) => ({
+        unique: acc.unique + 1,
+        occurrences: acc.occurrences + Number(row.occurrences)
+    }), { unique: 0, occurrences: 0 });
+
+    return { days, summary, rows };
+});
+
 // --- ВРЕМЕННОЕ: сброс статистики -----------------------------------------
 // Нужно, пока данные — это тестовые прогоны разработчиков. Удаляется вместе с
 // кнопкой «Сброс аналитики» в dashboard.html, как только пойдут живые игроки.

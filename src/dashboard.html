@@ -88,6 +88,13 @@
   .kpi-label { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
   .kpi-value { font-size: 26px; font-weight: 600; margin: 0; }
   .kpi-value--alert { color: var(--critical); }
+  .error-row { cursor: pointer; }
+  .error-row:hover td { background: rgba(11,11,11,0.03); }
+  .error-message { max-width: 520px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .error-type { font-size: 12px; color: var(--text-secondary); }
+  .error-type--exception { color: var(--critical); }
+  .stack-cell { padding: 0 !important; }
+  .stack-pre { margin: 0; padding: 12px 16px; font: 12px/1.45 Consolas, "SFMono-Regular", Menlo, monospace; white-space: pre-wrap; word-break: break-word; background: rgba(11,11,11,0.04); border-top: 1px solid var(--border); color: var(--text-primary); }
 
   .footnote { font-size: 12px; color: var(--text-muted); margin: 4px 2px 24px; }
 
@@ -258,6 +265,37 @@
 
         <p class="empty" id="questEmpty" hidden>За этот период ни один квест не пройден.</p>
       </section>
+
+      <section class="card chart-card">
+        <div class="chart-head">
+          <h2>Ошибки консоли</h2>
+          <div class="range-group" id="errorRangeGroup" role="group" aria-label="Период">
+            <button type="button" class="chip" data-days="7">7 дней</button>
+            <button type="button" class="chip" data-days="30">30 дней</button>
+            <button type="button" class="chip" data-days="90">90 дней</button>
+          </div>
+        </div>
+
+        <p class="footnote" id="errorSummary"></p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Последний раз</th>
+                <th>Сообщение</th>
+                <th>Сцена</th>
+                <th>Раз</th>
+                <th>Установок</th>
+                <th>Версии</th>
+              </tr>
+            </thead>
+            <tbody id="errorTableBody"></tbody>
+          </table>
+        </div>
+
+        <p class="empty" id="errorEmpty" hidden>За этот период ошибок нет.</p>
+      </section>
     </main>
   </div>
 
@@ -283,7 +321,10 @@
     // Период для квестов свой: прохождение сюжета растянуто на недели, и на
     // тех же 14 днях, что и запуски, хвост воронки почти всегда пустой.
     questDays: 30,
-    questRows: []
+    questRows: [],
+
+    errorDays: 30,
+    errorRows: []
   };
 
   var els = {
@@ -310,7 +351,11 @@
     questRangeGroup: document.getElementById('questRangeGroup'),
     questSummary: document.getElementById('questSummary'),
     questTableBody: document.getElementById('questTableBody'),
-    questEmpty: document.getElementById('questEmpty')
+    questEmpty: document.getElementById('questEmpty'),
+    errorRangeGroup: document.getElementById('errorRangeGroup'),
+    errorSummary: document.getElementById('errorSummary'),
+    errorTableBody: document.getElementById('errorTableBody'),
+    errorEmpty: document.getElementById('errorEmpty')
   };
 
   // --- Ключ -----------------------------------------------------------
@@ -428,7 +473,8 @@
     return Promise.all([
       fetchJSON('/v1/stats/overview'),
       fetchJSON('/v1/stats/launches?days=' + state.days),
-      loadQuests()
+      loadQuests(),
+      loadErrors()
     ]).then(function (results) {
       renderOverview(results[0]);
       state.rows = results[1].rows || [];
@@ -717,6 +763,93 @@
     var td = document.createElement('td');
     td.textContent = text;
     return td;
+  }
+
+  // --- Ошибки консоли --------------------------------------------------------
+
+  Array.prototype.forEach.call(els.errorRangeGroup.querySelectorAll('.chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      state.errorDays = Number(chip.dataset.days);
+      updateErrorRangeChips();
+      loadErrors().catch(function () { els.status.textContent = 'Ошибка загрузки данных'; });
+    });
+  });
+
+  function updateErrorRangeChips() {
+    Array.prototype.forEach.call(els.errorRangeGroup.querySelectorAll('.chip'), function (chip) {
+      var active = Number(chip.dataset.days) === state.errorDays;
+      chip.classList.toggle('active', active);
+      chip.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function loadErrors() {
+    updateErrorRangeChips();
+    return fetchJSON('/v1/stats/errors?days=' + state.errorDays).then(function (data) {
+      state.errorRows = data.rows || [];
+      renderErrors(data.summary);
+      return data;
+    });
+  }
+
+  function renderErrors(summary) {
+    var rows = state.errorRows;
+
+    els.errorTableBody.innerHTML = '';
+    els.errorEmpty.hidden = rows.length > 0;
+
+    if (summary && summary.unique) {
+      els.errorSummary.textContent =
+        'Уникальных ошибок: ' + formatExact(summary.unique) +
+        ', всего срабатываний: ' + formatExact(summary.occurrences) +
+        '. Одинаковые ошибки клиент считает один раз за сессию. Клик по строке — стек.';
+    } else {
+      els.errorSummary.textContent = '';
+    }
+
+    rows.forEach(function (row) {
+      var tr = document.createElement('tr');
+      tr.className = 'error-row';
+
+      tr.appendChild(cell(formatDateTime(row.last_seen)));
+
+      // Сообщение + тип под ним. textContent: текст приходит из клиента игры.
+      var messageCell = document.createElement('td');
+      messageCell.className = 'error-message';
+      messageCell.title = row.message || '';
+      var messageText = document.createElement('div');
+      messageText.textContent = row.message || '—';
+      var typeText = document.createElement('div');
+      typeText.className = 'error-type' + (row.type === 'Exception' ? ' error-type--exception' : '');
+      typeText.textContent = row.type || '';
+      messageCell.appendChild(messageText);
+      messageCell.appendChild(typeText);
+      tr.appendChild(messageCell);
+
+      tr.appendChild(cell(row.scene || '—'));
+      tr.appendChild(cell(formatExact(row.occurrences)));
+      tr.appendChild(cell(formatExact(row.installs)));
+      tr.appendChild(cell((row.app_versions || []).join(', ') || '—'));
+
+      // Стек — отдельной строкой под ошибкой, по клику.
+      var detail = document.createElement('tr');
+      detail.hidden = true;
+      var detailCell = document.createElement('td');
+      detailCell.className = 'stack-cell';
+      detailCell.colSpan = 6;
+      var pre = document.createElement('pre');
+      pre.className = 'stack-pre';
+      pre.textContent = (row.stack && row.stack.trim()) ? row.stack : '(стек не передан)';
+      detailCell.appendChild(pre);
+      detail.appendChild(detailCell);
+
+      tr.addEventListener('click', function () {
+        detail.hidden = !detail.hidden;
+      });
+
+      els.errorTableBody.appendChild(tr);
+      els.errorTableBody.appendChild(detail);
+    });
   }
 
   // --- Легенда --------------------------------------------------------------

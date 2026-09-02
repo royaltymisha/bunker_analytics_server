@@ -28,6 +28,7 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 | GET | `/v1/stats/launches?days=14` | `X-Api-Key: $ADMIN_KEY` | запуски по дням: всего, уникальных, новых установок |
 | GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий, краши, нештатные выходы, ошибки консоли, крашей на 100 запусков за 7 дней |
 | GET | `/v1/stats/quests?days=30` | `X-Api-Key: $ADMIN_KEY` | прохождение сюжета: сколько игроков дошло до каждого шага и где остановилось |
+| GET | `/v1/stats/errors?days=30&limit=200` | `X-Api-Key: $ADMIN_KEY` | ошибки консоли, сгруппированные по хешу: сообщение, тип, стек последнего, срабатывания, установки, версии |
 | GET | `/dashboard` | — (ключ вводится в браузере) | визуальный дашборд статистики |
 | GET | `/health` | — | healthcheck |
 
@@ -108,3 +109,15 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
   через `ISteamUserAuth/AuthenticateUserTicket`. Для отчётов, влияющих на деньги, фильтруйте по нему.
 - **`STEAM_APP_ID` должен совпадать с тем, под которым клиент запросил билет**, иначе Steam
   вернёт отказ и все события окажутся непроверенными.
+
+## Прокси для заблокированных операторов
+
+Часть операторов блокирует домены Railway. Перед сервером стоит обратный прокси на VPS
+`64.188.99.19` (Caddy, конфиг `/etc/caddy/Caddyfile`, сертификат Let's Encrypt):
+`https://64-188-99-19.sslip.io` → `https://bunkeranalyticsserver-production.up.railway.app`.
+В `AnalyticsSettings` Unity он прописан в `FallbackBaseUrls`: клиент уходит на него, когда
+основной адрес не отвечает на сетевом уровне, и держится его до перезапуска игры.
+Прокси принимает только запросы с заголовком `X-Proxy-Key` (значение — `ProxyKey` в `AnalyticsSettings`,
+оно же в `/etc/caddy/Caddyfile`), без него отвечает 403. Проверка:
+`curl -H "X-Proxy-Key: <ключ>" https://64-188-99-19.sslip.io/health`.
+
