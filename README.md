@@ -117,7 +117,9 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 `https://64-188-99-19.sslip.io` → `https://bunkeranalyticsserver-production.up.railway.app`.
 В `AnalyticsSettings` Unity он прописан в `FallbackBaseUrls`: клиент уходит на него, когда
 основной адрес не отвечает на сетевом уровне, и держится его до перезапуска игры.
-Прокси принимает только запросы с заголовком `X-Proxy-Key` (значение — `ProxyKey` в `AnalyticsSettings`,
-оно же в `/etc/caddy/Caddyfile`), без него отвечает 403. Проверка:
+Прокси принимает только запросы с заголовком `X-Proxy-Key`, без него отвечает 403. Ключ игра
+вычисляет на старте (`ProxyKeyProvider` в Unity, тройной SHA-256 от констант в коде), в ассетах его нет;
+посмотреть значение: меню Unity Bunker → Analytics → Proxy Key. То же значение стоит в `/etc/caddy/Caddyfile`.
+Проверка:
 `curl -H "X-Proxy-Key: <ключ>" https://64-188-99-19.sslip.io/health`.
 
