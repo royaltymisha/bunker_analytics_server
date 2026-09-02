@@ -195,10 +195,28 @@ app.get('/v1/stats/overview', {
                   where received_at >= now() - interval '1 day')                  as dau,
                 (select count(distinct install_id) from events
                   where received_at >= now() - interval '30 days')                as mau,
-                (select max(received_at) from events)                             as last_event_at`
+                (select max(received_at) from events)                             as last_event_at,
+                -- Краши и ошибки: за всё время для плиток и за 7 дней для доли на запуск —
+                -- «всего» размывается старыми билдами, а неделя показывает текущий билд.
+                (select count(*) from events where name = 'game_crash')           as crashes_total,
+                (select count(*) from events where name = 'crash_suspected')      as crashes_suspected_total,
+                (select count(*) from events where name = 'console_error')        as console_errors_total,
+                (select count(distinct install_id) from events
+                  where name = 'console_error')                                   as console_errors_installs,
+                (select count(*) from events where name = 'game_crash'
+                   and received_at >= now() - interval '7 days')                  as crashes_7d,
+                (select count(*) from events where name = 'game_launch'
+                   and received_at >= now() - interval '7 days')                  as launches_7d`
     );
 
-    return rows[0];
+    const overview = rows[0];
+    const launches7d = Number(overview.launches_7d);
+
+    overview.crashes_per_100_launches_7d = launches7d > 0
+        ? Math.round((Number(overview.crashes_7d) / launches7d) * 10_000) / 100
+        : null;
+
+    return overview;
 });
 
 // Прогресс по сюжету. Ключ шага — queue_index, сквозной индекс квеста в очереди:

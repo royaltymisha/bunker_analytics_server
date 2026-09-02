@@ -87,6 +87,7 @@
   .kpi-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .kpi-label { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
   .kpi-value { font-size: 26px; font-weight: 600; margin: 0; }
+  .kpi-value--alert { color: var(--critical); }
 
   .footnote { font-size: 12px; color: var(--text-muted); margin: 4px 2px 24px; }
 
@@ -487,7 +488,32 @@
       { label: 'MAU', value: overview.mau },
       { label: 'Установок всего', value: overview.installs_total },
       { label: 'Запусков всего', value: overview.launches_total },
-      { label: 'Событий всего', value: overview.events_total }
+      { label: 'Событий всего', value: overview.events_total },
+      {
+        label: 'Крашей',
+        value: overview.crashes_total,
+        alert: toNumber(overview.crashes_total) > 0,
+        title: 'game_crash — Unity оставил папку Crashes. Нештатных выходов без дампа: ' +
+          formatExact(overview.crashes_suspected_total)
+      },
+      {
+        label: 'Нештатных выходов',
+        value: overview.crashes_suspected_total,
+        title: 'crash_suspected — сессия не завершилась штатно, папки Crashes нет'
+      },
+      {
+        label: 'Ошибок консоли',
+        value: overview.console_errors_total,
+        alert: toNumber(overview.console_errors_total) > 0,
+        title: 'console_error, уникальных за сессию. Установок с ошибками: ' +
+          formatExact(overview.console_errors_installs)
+      },
+      {
+        label: 'Крашей на 100 запусков, 7 дн',
+        text: overview.crashes_per_100_launches_7d === null ? '—' : String(overview.crashes_per_100_launches_7d),
+        alert: toNumber(overview.crashes_per_100_launches_7d) > 0,
+        title: formatExact(overview.crashes_7d) + ' крашей на ' + formatExact(overview.launches_7d) + ' запусков за 7 дней'
+      }
     ];
 
     els.kpiRow.innerHTML = '';
@@ -500,9 +526,9 @@
       label.textContent = tile.label;
 
       var value = document.createElement('p');
-      value.className = 'kpi-value';
-      value.textContent = formatCompact(tile.value);
-      value.title = formatExact(tile.value);
+      value.className = 'kpi-value' + (tile.alert ? ' kpi-value--alert' : '');
+      value.textContent = tile.text !== undefined ? tile.text : formatCompact(tile.value);
+      value.title = tile.title || (tile.text !== undefined ? tile.text : formatExact(tile.value));
 
       el.appendChild(label);
       el.appendChild(value);

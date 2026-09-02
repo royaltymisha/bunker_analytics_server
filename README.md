@@ -26,7 +26,7 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 |---|---|---|---|
 | POST | `/v1/events` | `X-Api-Key: $INGEST_KEY` | приём пачки событий, до 100 за раз |
 | GET | `/v1/stats/launches?days=14` | `X-Api-Key: $ADMIN_KEY` | запуски по дням: всего, уникальных, новых установок |
-| GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий |
+| GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий, краши, нештатные выходы, ошибки консоли, крашей на 100 запусков за 7 дней |
 | GET | `/v1/stats/quests?days=30` | `X-Api-Key: $ADMIN_KEY` | прохождение сюжета: сколько игроков дошло до каждого шага и где остановилось |
 | GET | `/dashboard` | — (ключ вводится в браузере) | визуальный дашборд статистики |
 | GET | `/health` | — | healthcheck |
@@ -61,6 +61,9 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 | `game_launch` | запуск игры, до первой сцены | `first_launch`, `launch_count`, железо, разрешение, язык |
 | `game_quit` | выход из игры | `session_seconds` |
 | `quest_complete` | пройден шаг очереди квестов | `queue_index`, `quest_name`, `quest_day`, `duration_seconds` |
+| `game_crash` | на старте найдена новая папка Crashes Unity от прошлого запуска (нативный краш) | `reason` (первые строки error.log), `crashed_session_id`, `session_seconds`, `last_event`, `scene` |
+| `crash_suspected` | прошлая сессия не завершилась штатно, папки Crashes нет (процесс убит, питание) | `crashed_session_id`, `session_seconds`, `last_event`, `scene` |
+| `console_error` | ошибка в консоли текущей сессии (Error, Exception, Assert); одинаковые — раз за сессию, не больше 50 | `type`, `message`, `stack`, `hash`, `scene` |
 
 `quest_complete` шлётся клиентом из `QuestsManager.QuestQueueRunner` в момент, когда квест переходит
 в `Complete`. Прогресс считается по **`queue_index`** — сквозному индексу шага в очереди, а не по
