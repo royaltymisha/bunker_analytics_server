@@ -162,20 +162,25 @@ app.get('/v1/stats/launches', {
 
     // Считаем по received_at, а не по client_ts: часы игрока могут быть
     // переведены, а оффлайн-очередь доезжает через сутки после запуска.
+    // Краши идут тем же запросом, а не джойном: день с крашем, но без запусков
+    // (игра упала до game_launch) иначе выпал бы из таблицы вовсе.
     const { rows } = await pool.query(
-        `with launches as (select install_id,
-                                  steam_id,
-                                  received_at,
-                                  props ->> 'first_launch' as first_launch
-                           from events
-                           where name = 'game_launch'
-                             and received_at >= now() - make_interval(days => $1::int))
-         select date_trunc('day', received_at)::date                         as day,
-                count(*)                                                     as launches,
-                count(distinct install_id)                                   as unique_installs,
-                count(distinct steam_id) filter (where steam_id is not null) as unique_steam_accounts,
-                count(*) filter (where first_launch = 'true')                as new_installs
-         from launches
+        `with daily as (select name,
+                               install_id,
+                               steam_id,
+                               received_at,
+                               props ->> 'first_launch' as first_launch
+                        from events
+                        where name in ('game_launch', 'game_crash')
+                          and received_at >= now() - make_interval(days => $1::int))
+         select date_trunc('day', received_at)::date                                  as day,
+                count(*) filter (where name = 'game_launch')                          as launches,
+                count(distinct install_id) filter (where name = 'game_launch')        as unique_installs,
+                count(distinct steam_id)
+                    filter (where name = 'game_launch' and steam_id is not null)      as unique_steam_accounts,
+                count(*) filter (where name = 'game_launch' and first_launch = 'true') as new_installs,
+                count(*) filter (where name = 'game_crash')                           as crashes
+         from daily
          group by day
          order by day desc`,
         [days]

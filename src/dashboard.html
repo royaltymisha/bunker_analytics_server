@@ -161,6 +161,7 @@
   .bar-cell .bar-value { position: relative; }
   .quest-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td.dropoff-high { color: var(--critical); font-weight: 600; }
+  td.alert-cell { color: var(--critical); font-weight: 600; }
 
   .empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0; }
   .sr-only {
@@ -224,6 +225,7 @@
                 <th>Уник. установки</th>
                 <th>Новые установки</th>
                 <th>Steam-аккаунты</th>
+                <th>Краши</th>
               </tr>
             </thead>
             <tbody id="dataTableBody"></tbody>
@@ -655,10 +657,18 @@
         formatExact(row.new_installs),
         formatExact(row.unique_steam_accounts)
       ].forEach(function (text) {
-        var td = document.createElement('td');
-        td.textContent = text;
-        tr.appendChild(td);
+        tr.appendChild(cell(text));
       });
+
+      // Краши красным, когда они есть: ноль в этой колонке — норма, и глазу
+      // нужен только тот день, где норма нарушена.
+      var crashes = toNumber(row.crashes);
+      var crashCell = cell(formatExact(crashes));
+      if (crashes > 0) {
+        crashCell.className = 'alert-cell';
+      }
+      tr.appendChild(crashCell);
+
       els.tableBody.appendChild(tr);
     });
   }
