@@ -225,7 +225,6 @@
                 <th>Уник. установки</th>
                 <th>Новые установки</th>
                 <th>Steam-аккаунты</th>
-                <th title="Установок, для которых этот день стал последним с запуском">Остановились</th>
                 <th>Краши</th>
               </tr>
             </thead>
@@ -648,14 +647,6 @@
 
   function renderTable() {
     els.tableBody.innerHTML = '';
-
-    // Порог «в этот день заметно отвалились» — как в воронке квестов: пятая часть
-    // от самого людного дня периода.
-    var maxUnique = state.rows.reduce(function (max, row) {
-      return Math.max(max, toNumber(row.unique_installs));
-    }, 0);
-    var dropoffThreshold = Math.max(1, maxUnique * 0.2);
-
     // API отдаёт дни по убыванию — так и показываем в таблице.
     state.rows.forEach(function (row) {
       var tr = document.createElement('tr');
@@ -668,13 +659,6 @@
       ].forEach(function (text) {
         tr.appendChild(cell(text));
       });
-
-      var stopped = toNumber(row.installs_stopped_here);
-      var stoppedCell = cell(stopped > 0 ? formatExact(stopped) : '—');
-      if (stopped >= dropoffThreshold) {
-        stoppedCell.className = 'dropoff-high';
-      }
-      tr.appendChild(stoppedCell);
 
       // Краши красным, когда они есть: ноль в этой колонке — норма, и глазу
       // нужен только тот день, где норма нарушена.
