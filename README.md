@@ -29,7 +29,7 @@ Healthcheck (`/health`) уже прописан в `railway.json`: новый д
 | GET | `/v1/stats/overview` | `X-Api-Key: $ADMIN_KEY` | сводка: DAU, MAU, всего событий, краши, нештатные выходы, ошибки консоли, крашей на 100 запусков за 7 дней |
 | GET | `/v1/stats/quests?days=30` | `X-Api-Key: $ADMIN_KEY` | прохождение сюжета: сколько игроков дошло до каждого шага и где остановилось |
 | GET | `/v1/stats/errors?days=30&limit=200` | `X-Api-Key: $ADMIN_KEY` | ошибки консоли, сгруппированные по хешу: сообщение, тип, стек последнего, срабатывания, установки, версии |
-| GET | `/v1/admin/export` | `X-Api-Key: $ADMIN_KEY` | выгрузка всех событий файлом JSON Lines (одно событие на строку) |
+| GET / POST | `/v1/admin/export` | `X-Api-Key: $ADMIN_KEY` или поле формы `key` | выгрузка всех событий файлом JSON Lines (одно событие на строку) |
 | GET | `/dashboard` | — (ключ вводится в браузере) | визуальный дашборд статистики |
 | GET | `/health` | — | healthcheck |
 

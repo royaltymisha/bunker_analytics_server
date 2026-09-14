@@ -407,9 +407,7 @@ async function* exportEvents() {
     }
 }
 
-app.get('/v1/admin/export', {
-    onRequest: requireKey(process.env.ADMIN_KEY)
-}, async (request, reply) => {
+function sendExport(request, reply) {
     const stamp = new Date().toISOString().slice(0, 10);
 
     request.log.info('выгрузка базы через /v1/admin/export');
@@ -418,6 +416,27 @@ app.get('/v1/admin/export', {
         .type('application/x-ndjson; charset=utf-8')
         .header('Content-Disposition', `attachment; filename="bunker-events-${stamp}.jsonl"`)
         .send(Readable.from(exportEvents()));
+}
+
+// GET с ключом в заголовке — для curl и скриптов.
+app.get('/v1/admin/export', {
+    onRequest: requireKey(process.env.ADMIN_KEY)
+}, async (request, reply) => sendExport(request, reply));
+
+// POST обычной HTML-формой — для кнопки в дашборде. Браузер сам скачивает
+// ответ с прогрессом и не держит файл в памяти, как это было бы с fetch + blob,
+// а ключ идёт в теле запроса и не оседает в истории и логах прокси.
+// Fastify из коробки формы не разбирает, поэтому парсер свой: тело крошечное.
+app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (request, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(body)));
+});
+
+app.post('/v1/admin/export', async (request, reply) => {
+    if (!process.env.ADMIN_KEY || request.body?.key !== process.env.ADMIN_KEY) {
+        return reply.code(401).send({ error: 'unauthorized' });
+    }
+
+    return sendExport(request, reply);
 });
 
 // --- ВРЕМЕННОЕ: сброс статистики -----------------------------------------
