@@ -164,6 +164,10 @@ app.get('/v1/stats/launches', {
     // переведены, а оффлайн-очередь доезжает через сутки после запуска.
     // Краши идут тем же запросом, а не джойном: день с крашем, но без запусков
     // (игра упала до game_launch) иначе выпал бы из таблицы вовсе.
+    // «Остановились» — для скольких установок этот день стал последним с запуском,
+    // то есть кто после него не возвращался. Последний день окна тут всегда полон:
+    // все, кто играл сегодня, пока «остановились» сегодня — как и последний шаг в
+    // воронке квестов.
     const { rows } = await pool.query(
         `with daily as (select name,
                                install_id,
@@ -172,17 +176,35 @@ app.get('/v1/stats/launches', {
                                props ->> 'first_launch' as first_launch
                         from events
                         where name in ('game_launch', 'game_crash')
-                          and received_at >= now() - make_interval(days => $1::int))
-         select date_trunc('day', received_at)::date                                  as day,
-                count(*) filter (where name = 'game_launch')                          as launches,
-                count(distinct install_id) filter (where name = 'game_launch')        as unique_installs,
-                count(distinct steam_id)
-                    filter (where name = 'game_launch' and steam_id is not null)      as unique_steam_accounts,
-                count(*) filter (where name = 'game_launch' and first_launch = 'true') as new_installs,
-                count(*) filter (where name = 'game_crash')                           as crashes
-         from daily
-         group by day
-         order by day desc`,
+                          and received_at >= now() - make_interval(days => $1::int)),
+              per_day as (select date_trunc('day', received_at)::date                                  as day,
+                                 count(*) filter (where name = 'game_launch')                          as launches,
+                                 count(distinct install_id) filter (where name = 'game_launch')        as unique_installs,
+                                 count(distinct steam_id)
+                                     filter (where name = 'game_launch' and steam_id is not null)      as unique_steam_accounts,
+                                 count(*) filter (where name = 'game_launch' and first_launch = 'true') as new_installs,
+                                 count(*) filter (where name = 'game_crash')                           as crashes
+                          from daily
+                          group by day),
+              -- Последний запуск внутри окна и есть последний запуск вообще: всё, что
+              -- позже него, тоже попало бы в окно. Поэтому за пределы окна не смотрим.
+              last_launch as (select install_id, date_trunc('day', max(received_at))::date as day
+                              from daily
+                              where name = 'game_launch'
+                              group by install_id),
+              stopped as (select day, count(*) as installs
+                          from last_launch
+                          group by day)
+         select p.day,
+                p.launches,
+                p.unique_installs,
+                p.unique_steam_accounts,
+                p.new_installs,
+                p.crashes,
+                coalesce(s.installs, 0) as installs_stopped_here
+         from per_day p
+                  left join stopped s on s.day = p.day
+         order by p.day desc`,
         [days]
     );
 
