@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -369,6 +370,54 @@ app.get('/v1/stats/errors', {
     }), { unique: 0, occurrences: 0 });
 
     return { days, summary, rows };
+});
+
+// --- Выгрузка базы ---------------------------------------------------------
+
+// Все события как есть, по одному JSON-объекту на строку (JSON Lines): такой
+// файл читается jq/pandas построчно, а props остаётся настоящим JSON, чего
+// CSV не даёт. Отдаём потоком порциями по keyset-курсору, а не одним
+// select *: таблица растёт без ограничений, и целиком в память её не собрать.
+const EXPORT_CHUNK = 5000;
+
+async function* exportEvents() {
+    let after = null;
+
+    for (;;) {
+        const { rows } = await pool.query(
+            `select event_id, name, client_ts, received_at, install_id, session_id,
+                    steam_id, steam_verified, app_version, platform, props
+             from events
+             where $1::timestamptz is null
+                or (received_at, event_id) > ($1::timestamptz, $2::uuid)
+             order by received_at, event_id
+             limit $3`,
+            [after?.received_at ?? null, after?.event_id ?? null, EXPORT_CHUNK]
+        );
+
+        for (const row of rows) {
+            yield JSON.stringify(row) + '\n';
+        }
+
+        if (rows.length < EXPORT_CHUNK) {
+            return;
+        }
+
+        after = rows[rows.length - 1];
+    }
+}
+
+app.get('/v1/admin/export', {
+    onRequest: requireKey(process.env.ADMIN_KEY)
+}, async (request, reply) => {
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    request.log.info('выгрузка базы через /v1/admin/export');
+
+    return reply
+        .type('application/x-ndjson; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="bunker-events-${stamp}.jsonl"`)
+        .send(Readable.from(exportEvents()));
 });
 
 // --- ВРЕМЕННОЕ: сброс статистики -----------------------------------------

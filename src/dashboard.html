@@ -177,6 +177,7 @@
       <div class="topbar-actions">
         <button id="refreshBtn" class="btn btn-ghost" type="button" hidden>Обновить</button>
         <button id="changeKeyBtn" class="btn btn-ghost" type="button" hidden>Сменить ключ</button>
+        <button id="exportBtn" class="btn btn-ghost" type="button" hidden title="Все события в формате JSON Lines">Скачать базу</button>
         <!-- ВРЕМЕННОЕ: сброс базы на время отладки, убрать вместе с /v1/admin/reset -->
         <button id="resetBtn" class="btn btn-danger" type="button" hidden>Сброс аналитики</button>
       </div>
@@ -338,6 +339,7 @@
     status: document.getElementById('status'),
     refreshBtn: document.getElementById('refreshBtn'),
     changeKeyBtn: document.getElementById('changeKeyBtn'),
+    exportBtn: document.getElementById('exportBtn'),
     resetBtn: document.getElementById('resetBtn'),
     kpiRow: document.getElementById('kpiRow'),
     lastEvent: document.getElementById('lastEvent'),
@@ -379,6 +381,7 @@
     els.app.hidden = true;
     els.refreshBtn.hidden = true;
     els.changeKeyBtn.hidden = true;
+    els.exportBtn.hidden = true;
     els.resetBtn.hidden = true;
     els.gateError.hidden = !message;
     els.gateError.textContent = message || '';
@@ -390,6 +393,7 @@
     els.app.hidden = false;
     els.refreshBtn.hidden = false;
     els.changeKeyBtn.hidden = false;
+    els.exportBtn.hidden = false;
     els.resetBtn.hidden = false;
   }
 
@@ -408,6 +412,46 @@
   });
 
   els.refreshBtn.addEventListener('click', function () { loadAll(); });
+
+  // --- Выгрузка базы ------------------------------------------------------
+
+  // Не простая ссылка: ключ уходит заголовком, а не в URL, чтобы не оседать
+  // в истории браузера и логах прокси. Поэтому fetch → blob → клик по ссылке.
+  els.exportBtn.addEventListener('click', function () {
+    els.exportBtn.disabled = true;
+    els.status.textContent = 'Выгрузка…';
+
+    fetch('/v1/admin/export', { headers: { 'X-Api-Key': getKey() } }).then(function (res) {
+      if (res.status === 401) {
+        clearKey();
+        showGate('Неверный ключ.');
+        return null;
+      }
+      if (!res.ok) throw new Error('export_failed');
+
+      var disposition = res.headers.get('Content-Disposition') || '';
+      var match = /filename="([^"]+)"/.exec(disposition);
+      var filename = match ? match[1] : 'bunker-events.jsonl';
+
+      return res.blob().then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Отзываем не сразу: некоторые браузеры начинают скачивание асинхронно.
+        setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+        els.status.textContent = 'Файл ' + filename + ' скачан';
+      });
+    }).catch(function () {
+      els.status.textContent = 'Не удалось выгрузить базу';
+      window.alert('Не удалось выгрузить базу.');
+    }).finally(function () {
+      els.exportBtn.disabled = false;
+    });
+  });
 
   // --- ВРЕМЕННОЕ: сброс аналитики ---------------------------------------
   // Убрать вместе с кнопкой #resetBtn, стилем .btn-danger и роутом
